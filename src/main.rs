@@ -397,8 +397,6 @@ async fn monitor_timeout(
                 }
             }
 
-        } // end tokio::select!
-    } // end loop
-      // The loop is infinite and branches always exit or continue, so this is unreachable.
-      // Ok(()) // This line is unreachable because monitor_timeout always exits.
-} // end monitor_timeout
+        }
+    }
+}
