@@ -80,7 +80,61 @@ You can send a UDP signal using various tools. The content of the UDP packet doe
   ```python
   import socket
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-  sock.sendto(b'ping', ('127.0.0.1', 12345))
+  sock.sendto(b'ping', ('127.0.0.1', 12345)) # Replace address/port if needed
+  print("Sent UDP ping.")
+  ```
+- Using TypeScript (Node.js):
+
+  ```typescript
+  import dgram from "dgram";
+
+  const message = Buffer.from("ping");
+  const client = dgram.createSocket("udp4");
+  const targetHost = "127.0.0.1";
+  const targetPort = 12345; // Replace if needed
+
+  client.send(message, targetPort, targetHost, (err) => {
+    if (err) {
+      console.error("Failed to send UDP ping:", err);
+    } else {
+      console.log(`Sent UDP ping to ${targetHost}:${targetPort}`);
+    }
+    client.close();
+  });
+  ```
+
+- Using Rust:
+
+  ```rust
+  use std::net::UdpSocket;
+
+  fn main() -> std::io::Result<()> {
+      let socket = UdpSocket::bind("0.0.0.0:0")?; // Bind to any available local port
+      let target_addr = "127.0.0.1:12345"; // Replace if needed
+      socket.send_to(b"ping", target_addr)?;
+      println!("Sent UDP ping to {}", target_addr);
+      Ok(())
+  }
+  ```
+
+- Using Ruby:
+
+  ```ruby
+  require 'socket'
+
+  message = "ping"
+  target_host = '127.0.0.1'
+  target_port = 12345 # Replace if needed
+
+  begin
+    socket = UDPSocket.new
+    socket.send(message, 0, target_host, target_port)
+    puts "Sent UDP ping to #{target_host}:#{target_port}"
+  rescue => e
+    puts "Failed to send UDP ping: #{e.message}"
+  ensure
+    socket&.close
+  end
   ```
 
 ## Building
