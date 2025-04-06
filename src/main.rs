@@ -319,6 +319,34 @@ async fn monitor_timeout(
         timeout_duration, child_pid
     );
 
+    // Get stdout and stderr handles from the child process
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    // Spawn a task to forward stdout if available
+    if let Some(mut stdout) = stdout {
+        tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let mut reader = BufReader::new(stdout).lines();
+
+            while let Ok(Some(line)) = reader.next_line().await {
+                println!("[child stdout] {}", line);
+            }
+        });
+    }
+
+    // Spawn a task to forward stderr if available
+    if let Some(mut stderr) = stderr {
+        tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let mut reader = BufReader::new(stderr).lines();
+
+            while let Ok(Some(line)) = reader.next_line().await {
+                eprintln!("[child stderr] {}", line);
+            }
+        });
+    }
+
     loop {
         // Calculate time until next potential timeout *relative to the last known signal*
         let last_signal_time = *signal_rx.borrow();

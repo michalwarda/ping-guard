@@ -47,24 +47,25 @@ Or on Windows:
 - **Linux/macOS:** Run `sleep 1000`, kill it if no signal received for **10 seconds** (default listener).
 
   ```bash
-  ./target/release/ping-guard -t 10 /usr/bin/sleep 1000
+  ./target/release/ping-guard -t 10 /usr/bin/sleep -- 1000
   ```
 
 - **Linux/macOS:** Run `/path/to/my/app --config file.conf`, listening on `127.0.0.1:9999`, default 5-second timeout.
 
   ```bash
-  ./target/release/ping-guard -l 127.0.0.1:9999 /path/to/my/app --config file.conf
+  ./target/release/ping-guard -l 127.0.0.1:9999 /path/to/my/app -- --config file.conf
   ```
 
 - **Windows:** Run `timeout.exe 1000`, kill it if no signal received for **3 seconds**.
 
   ```powershell
-  .\target\release\ping-guard.exe -t 3 C:\Windows\System32\timeout.exe 1000
+  .\target\release\ping-guard.exe -t 3 C:\Windows\System32\timeout.exe -- 1000
   ```
 
 - **Windows:** Run `C:\path\to\app.exe --verbose`, listening on `127.0.0.1:54321` with a **30-second** timeout.
+
   ```powershell
-  .\target\release\ping-guard.exe -l 127.0.0.1:54321 -t 30 C:\path\to\app.exe --verbose
+  .\target\release\ping-guard.exe -l 127.0.0.1:54321 -t 30 C:\path\to\app.exe -- --verbose
   ```
 
 **Sending Signals:**
@@ -72,21 +73,25 @@ Or on Windows:
 You can send a UDP signal using various tools. The content of the UDP packet doesn't matter; its arrival is what resets the timer.
 
 - Using `netcat` (`nc`):
+
   ```bash
   # Send an empty UDP packet (some versions of nc need input)
   echo "ping" | nc -u -w1 127.0.0.1 12345
   ```
+
 - Using Python:
+
   ```python
   import socket
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   sock.sendto(b'ping', ('127.0.0.1', 12345)) # Replace address/port if needed
   print("Sent UDP ping.")
   ```
+
 - Using TypeScript (Node.js):
 
   ```typescript
-  import dgram from "dgram";
+  mport dgram from "dgram";
 
   const message = Buffer.from("ping");
   const client = dgram.createSocket("udp4");
@@ -141,22 +146,102 @@ You can send a UDP signal using various tools. The content of the UDP packet doe
 
 You need to have the Rust toolchain (including Cargo) installed. You can get it from [rustup.rs](https://rustup.rs/).
 
-1.  **Clone the repository (if you haven't already):**
-    ```bash
-    git clone <repository-url>
-    cd ping-guard
-    ```
-2.  **Build the project:**
-    - For a development build (unoptimized, faster compilation):
-      ```bash
-      cargo build
-      ```
-      The executable will be located at `target/debug/ping-guard`.
-    - For a release build (optimized, recommended for distribution/use):
-      ```bash
-      cargo build --release
-      ```
-      The executable will be located at `target/release/ping-guard`.
+1. **Clone the repository (if you haven't already):**
+   ```bash
+   git clone <repository-url>
+   cd ping-guard
+   ```
+2. **Build the project:**
+
+   - For a development build (unoptimized, faster compilation):
+
+     ```bash
+     cargo build
+     ```
+
+     The executable will be located at `target/debug/ping-guard`.
+
+   - For a release build (optimized, recommended for distribution/use):
+
+     ```bash
+     cargo build --release
+     ```
+
+     The executable will be located at `target/release/ping-guard`.
+
+### Multi-Platform Builds
+
+This project includes several tools to help you build for multiple platforms:
+
+#### Using Make
+
+The included Makefile provides targets for building on different platforms:
+
+```bash
+# Build for all platforms
+make all
+
+# Build for specific platforms
+make build-linux
+make build-windows
+make build-macos
+
+# Clean build artifacts
+make clean
+```
+
+#### Using Build Scripts
+
+For Unix-like systems, use the shell script:
+
+```bash
+# Make the script executable first
+chmod +x build.sh
+./build.sh
+```
+
+For Windows, use the PowerShell script:
+
+```powershell
+.\build.ps1
+```
+
+#### Using Cross (Cross-Compilation)
+
+For cross-compilation from a single platform, you can use the [cross](https://github.com/cross-rs/cross) tool:
+
+```bash
+# Install cross
+cargo install cross
+
+# Build for all platforms
+make cross-all
+
+# Or build for specific platforms
+cross build --release --target x86_64-unknown-linux-gnu
+cross build --release --target x86_64-pc-windows-msvc
+cross build --release --target aarch64-apple-darwin
+```
+
+Note: Cross-compilation has limitations, particularly for Windows and macOS targets from other platforms. For best results, build on the native platform or use the GitHub Actions workflow.
+
+#### Using GitHub Actions
+
+The project includes a GitHub Actions workflow that automatically builds binaries for all platforms on push or tag events. To use it:
+
+1. Push changes to the main branch, or create a tag:
+
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+2. The workflow will build binaries for all platforms and:
+
+   - Attach them as artifacts to the workflow run
+   - For tagged releases, create a GitHub release with the binaries attached
+
+All resulting binaries will be placed in the `builds/` directory.
 
 ## Development
 
