@@ -1,6 +1,6 @@
 # Ping Guard
 
-Ping Guard is a simple cross-platform watchdog utility written in Rust. It launches a specified child process and monitors a UDP port for incoming signals (pings). If no signal is received within a configurable timeout period (currently hardcoded at 5 seconds internally), Ping Guard will terminate the child process and then exit itself.
+Ping Guard is a simple cross-platform watchdog utility written in Rust. It launches a specified child process and monitors a UDP port for incoming signals (pings). If no signal is received within a configurable timeout period, Ping Guard will terminate the child process and then exit itself.
 
 ## Features
 
@@ -9,6 +9,7 @@ Ping Guard is a simple cross-platform watchdog utility written in Rust. It launc
 - Terminates the child process if no signal is received within the timeout.
 - Configurable child process path and arguments.
 - Configurable UDP listening address and port.
+- Configurable timeout duration.
 - Cross-platform (Linux, macOS, Windows).
 
 ## Usage
@@ -36,32 +37,34 @@ Or on Windows:
 
 - `-l <IP:PORT>`, `--listen-addr <IP:PORT>`: Specifies the IP address and port for the watchdog's UDP server to listen on for signals.
   - Default: `0.0.0.0:12345` (listens on all available network interfaces on port 12345).
+- `-t <SECONDS>`, `--timeout-secs <SECONDS>`: Sets the timeout in seconds. If no UDP signal is received for this duration, the child process is terminated.
+  - Default: `5`.
 - `-h`, `--help`: Prints help information.
 - `-V`, `--version`: Prints version information.
 
 **Examples:**
 
-- **Linux/macOS:** Run the `sleep` command for 1000 seconds, monitored by the watchdog listening on the default port. Send a UDP packet to `127.0.0.1:12345` at least every 5 seconds to keep it alive.
+- **Linux/macOS:** Run `sleep 1000`, kill it if no signal received for **10 seconds** (default listener).
 
   ```bash
-  ./target/release/ping-guard /usr/bin/sleep 1000
+  ./target/release/ping-guard -t 10 /usr/bin/sleep 1000
   ```
 
-- **Linux/macOS:** Run a custom application `/path/to/my/app` with arguments `--config file.conf`, listening on `127.0.0.1:9999`.
+- **Linux/macOS:** Run `/path/to/my/app --config file.conf`, listening on `127.0.0.1:9999`, default 5-second timeout.
 
   ```bash
   ./target/release/ping-guard -l 127.0.0.1:9999 /path/to/my/app --config file.conf
   ```
 
-- **Windows:** Run the `timeout.exe` command for 1000 seconds, monitored by the watchdog listening on the default port.
+- **Windows:** Run `timeout.exe 1000`, kill it if no signal received for **3 seconds**.
 
   ```powershell
-  .\target\release\ping-guard.exe C:\Windows\System32\timeout.exe 1000
+  .\target\release\ping-guard.exe -t 3 C:\Windows\System32\timeout.exe 1000
   ```
 
-- **Windows:** Run a custom application `C:\path\to\app.exe` with a flag `--verbose`, listening only on the local machine (`127.0.0.1`) port `54321`.
+- **Windows:** Run `C:\path\to\app.exe --verbose`, listening on `127.0.0.1:54321` with a **30-second** timeout.
   ```powershell
-  .\target\release\ping-guard.exe --listen-addr 127.0.0.1:54321 C:\path\to\app.exe --verbose
+  .\target\release\ping-guard.exe -l 127.0.0.1:54321 -t 30 C:\path\to\app.exe --verbose
   ```
 
 **Sending Signals:**
@@ -106,11 +109,11 @@ You need to have the Rust toolchain (including Cargo) installed. You can get it 
 - **Running:** Use `cargo run` to build and run the application directly during development. Pass arguments after `--`.
 
   ```bash
-  # Example: Run 'sleep 60' and listen on the default port
-  cargo run -- /usr/bin/sleep 60
+  # Example: Run 'sleep 60' with a 15-second timeout
+  cargo run -- -t 15 /usr/bin/sleep 60
 
-  # Example: Listen on a different port and run 'my_app --test'
-  cargo run -- -l 127.0.0.1:8888 /path/to/my_app --test
+  # Example: Listen on a different port, 3s timeout, run 'my_app --test'
+  cargo run -- -l 127.0.0.1:8888 -t 3 /path/to/my_app --test
   ```
 
 - **Dependencies:** The project uses `tokio` for asynchronous operations (process handling, networking, timers) and `clap` for command-line argument parsing. Cargo handles dependency management.

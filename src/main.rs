@@ -16,6 +16,10 @@ struct Cli {
     #[arg(short, long, value_name = "IP:PORT", default_value = "0.0.0.0:12345")]
     listen_addr: String,
 
+    /// Timeout in seconds before killing the child process if no signal is received.
+    #[arg(short, long, value_name = "SECONDS", default_value_t = 5)]
+    timeout_secs: u64,
+
     /// The path to the child binary to execute.
     #[arg(value_name = "BINARY_PATH")]
     child_binary_path: PathBuf,
@@ -35,6 +39,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli.child_args
     );
     println!("Listening for UDP signals on: {}", cli.listen_addr);
+    println!("Timeout set to: {} seconds", cli.timeout_secs);
+
+    // Validate timeout
+    if cli.timeout_secs == 0 {
+        eprintln!("Error: Timeout must be greater than 0 seconds.");
+        std::process::exit(1);
+    }
+    let timeout_duration = Duration::from_secs(cli.timeout_secs);
 
     // Launch the child process
     let mut command = Command::new(&cli.child_binary_path);
@@ -43,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(Stdio::piped()) // Pipe stdout/stderr if you want to see its output
         .stderr(Stdio::piped());
 
-    let child = match command.spawn() {
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
             eprintln!(
@@ -51,7 +63,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.child_binary_path.display(),
                 e
             );
-            // Exit directly if spawning fails
             std::process::exit(1);
         }
     };
@@ -95,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // --- Task 2: Monitor for timeout ---
-    let monitor_task = tokio::spawn(monitor_timeout(child, signal_rx));
+    let monitor_task = tokio::spawn(monitor_timeout(child, signal_rx, timeout_duration));
 
     let monitor_result = monitor_task.await?;
     signal_listener.abort(); // Stop the listener task if monitor finishes
@@ -108,11 +119,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn monitor_timeout(
     mut child: Child,
     mut signal_rx: watch::Receiver<Instant>,
+    timeout_duration: Duration, // Use the passed duration
 ) -> Result<(), String> {
-    let timeout_duration = Duration::from_secs(5);
     println!(
-        "Monitoring for signal timeout ({} seconds)...",
-        timeout_duration.as_secs()
+        "Monitoring for signal timeout ({:.2?} seconds)...",
+        timeout_duration
     );
 
     loop {
