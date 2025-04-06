@@ -10,6 +10,11 @@ use tokio::time::{sleep, Instant};
 // Platform-specific imports
 #[cfg(unix)]
 use libc;
+// Signal handling
+#[cfg(unix)]
+use tokio::signal::unix::{signal, SignalKind};
+#[cfg(windows)]
+use tokio::signal::windows;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -93,6 +98,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Channel to notify the monitor about received signals
     let (signal_tx, signal_rx) = watch::channel(Instant::now());
 
+    // Create a channel for propagating termination signals
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
+    // --- Task 0: Set up signal handling ---
+    let child_pid_for_signal = child_pid;
+    tokio::spawn(async move {
+        handle_termination_signals(child_pid_for_signal, shutdown_tx).await;
+    });
+
     // --- Task 1: Listen for signals via UDP ---
     let listener_addr_clone = cli.listen_addr.clone();
     let signal_listener = tokio::spawn(async move {
@@ -108,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = [0; 10]; // Small buffer suffices
         loop {
             match socket.recv_from(&mut buf).await {
-                Ok((_len, src_addr)) => {
+                Ok((_len, _src_addr)) => {
                     let now = Instant::now();
                     // Optional: Reduce log noise by commenting this out in production
                     // println!("UDP Signal received from: {} at: {:?}", src_addr, now);
@@ -133,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         signal_rx,
         timeout_duration,
         child_pid,
+        shutdown_rx,
     ));
 
     // Wait for the monitor task to complete (it will exit the process internally)
@@ -149,6 +164,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     signal_listener.abort(); // Ensure listener stops if monitor task somehow returned Ok
 
     Ok(())
+}
+
+/// Handles termination signals and initiates child process cleanup
+async fn handle_termination_signals(child_pid: u32, shutdown_tx: tokio::sync::oneshot::Sender<()>) {
+    println!("Setting up signal handlers for graceful shutdown...");
+
+    #[cfg(unix)]
+    {
+        // Set up handlers for common termination signals on Unix
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("Failed to set up SIGTERM handler");
+        let mut sigint = signal(SignalKind::interrupt()).expect("Failed to set up SIGINT handler");
+        let mut sighup = signal(SignalKind::hangup()).expect("Failed to set up SIGHUP handler");
+
+        tokio::select! {
+            _ = sigterm.recv() => {
+                println!("Received SIGTERM signal. Initiating shutdown...");
+            }
+            _ = sigint.recv() => {
+                println!("Received SIGINT signal (Ctrl+C). Initiating shutdown...");
+            }
+            _ = sighup.recv() => {
+                println!("Received SIGHUP signal. Initiating shutdown...");
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        // On Windows, we handle Ctrl+C and Ctrl+Break
+        let mut ctrl_c = windows::ctrl_c().expect("Failed to set up Ctrl+C handler");
+        let mut ctrl_break = windows::ctrl_break().expect("Failed to set up Ctrl+Break handler");
+
+        tokio::select! {
+            _ = ctrl_c.recv() => {
+                println!("Received Ctrl+C signal. Initiating shutdown...");
+            }
+            _ = ctrl_break.recv() => {
+                println!("Received Ctrl+Break signal. Initiating shutdown...");
+            }
+        }
+    }
+
+    // Send shutdown signal to monitor task
+    if shutdown_tx.send(()).is_err() {
+        // If the receiver is dropped, it means the monitor task has already exited.
+        // In that case, we'll try to kill the child process directly.
+        println!("Monitor task already exited. Attempting to kill child process directly.");
+
+        #[cfg(unix)]
+        unsafe {
+            println!("Sending SIGKILL to process group {}.", child_pid as i32);
+            // Safety: We're sending a signal to a valid process group
+            libc::killpg(child_pid as i32, libc::SIGKILL);
+        }
+
+        #[cfg(windows)]
+        {
+            println!("Windows: Cannot directly kill the child process outside the original Child structure.");
+            // On Windows, we don't have a direct way to kill a process by PID in this context.
+            // A more comprehensive solution would require the windows_sys crate to use TerminateProcess.
+        }
+    } else {
+        println!("Shutdown signal sent to monitor task. Waiting for cleanup to complete...");
+        // Give the monitor a moment to handle the shutdown
+        sleep(Duration::from_millis(200)).await;
+    }
+
+    // Exit the process
+    println!("Signal handler exiting the watchdog process.");
+    std::process::exit(130); // 128 + signal number (SIGINT=2)
 }
 
 /// Attempts to kill the process group on Unix, or just the process on Windows.
@@ -225,6 +311,7 @@ async fn monitor_timeout(
     mut signal_rx: watch::Receiver<Instant>,
     timeout_duration: Duration,
     child_pid: u32,
+    mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
     // Return type might not be reached due to std::process::exit
     println!(
@@ -242,6 +329,14 @@ async fn monitor_timeout(
         tokio::select! {
             // Biased select ensures we check child exit/signal first if ready
             biased;
+
+            // NEW BRANCH: Check for shutdown signal from signal handlers
+            _ = &mut shutdown_rx => {
+                println!("Received shutdown signal. Terminating child process...");
+                kill_child_process_tree(child, child_pid).await;
+                println!("Exiting watchdog due to shutdown signal.");
+                std::process::exit(0);
+            }
 
             // Branch 1: Wait for the child process to exit on its own
             // Note: child.wait() consumes the `child` variable when polled the first time.
